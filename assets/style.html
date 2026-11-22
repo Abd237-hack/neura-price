@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEURA-PRICE-AI — Laptop Estimator</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: #050814;
+            color: #f8fafc;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            overflow-x: hidden;
+        }
+        .code-font { font-family: 'JetBrains Mono', Consolas, monospace; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #050814; }
+        ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #334155; }
+        input::-webkit-outer-spin-button,
+        input::-webkit-inner-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+
+        .glass-panel {
+            background: radial-gradient(420px circle at var(--mx, 50%) var(--my, -80%), rgba(34, 211, 238, 0.10), transparent 45%),
+                        rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            border-radius: 1.5rem;
+            padding: 1.75rem;
+        }
+        .glass-input {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fff;
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+            width: 100%;
+            border-radius: 0.75rem;
+            padding: 0.75rem 1rem;
+            font-size: 0.875rem;
+        }
+        .glass-input:focus {
+            border-color: #06b6d4;
+            box-shadow: 0 0 15px rgba(6, 182, 212, 0.3);
+            outline: none;
+        }
+        select.glass-input option { background: #0f172a; color: #f8fafc; }
+
+        .label {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #94a3b8;
+            margin-bottom: 0.375rem;
+        }
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: bold;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .section-title svg { width: 1.25rem; height: 1.25rem; }
+
+        #cursor-canvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            pointer-events: none;
+            z-index: 9999;
+        }
+        .mesh-bg {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: -1;
+            background: linear-gradient(135deg, #050814 0%, #0f172a 50%, #1e1b4b 100%);
+            overflow: hidden;
+        }
+        .mesh-blob {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.35;
+        }
+
+        /* ===== анимации ===== */
+        @keyframes drift {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50%      { transform: translate(60px, -40px) scale(1.15); }
+        }
+        @keyframes flow { to { background-position: 200% center; } }
+        @keyframes shimmer { to { background-position: -200% 0; } }
+        @keyframes rise {
+            from { opacity: 0; transform: translateY(16px); }
+            to   { opacity: 1; transform: none; }
+        }
+        .mesh-blob { animation: drift 18s ease-in-out infinite; }
+        .mesh-blob:nth-child(2) { animation-duration: 24s; animation-direction: reverse; }
+
+        .flex-layout > * { animation: rise 0.7s ease both; }
+        .flex-layout > *:nth-child(2) { animation-delay: 0.15s; }
+
+        .loading .result-value {
+            display: inline-block;
+            min-width: 8rem;
+            color: transparent !important;
+            background: linear-gradient(90deg, #1e293b, #334155, #1e293b);
+            background-size: 200% 100%;
+            border-radius: 0.5rem;
+            animation: shimmer 1.2s linear infinite;
+        }
+        .tilt { transition: transform 0.15s ease-out; will-change: transform; }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation: none !important; transition: none !important; }
+        }
+
+        header {
+            width: 100%;
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-radius: 0;
+            border-top: none; border-left: none; border-right: none;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+        main {
+            flex-grow: 1;
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 2.5rem 1.5rem;
+            width: 100%;
+            z-index: 10;
+        }
+        footer {
+            text-align: center;
+            padding: 1.5rem;
+            font-size: 0.75rem;
+            color: #64748b;
+            border-radius: 0;
+            border-bottom: none; border-left: none; border-right: none;
+        }
+
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+        .flex-layout { display: grid; grid-template-columns: 1fr; gap: 2rem; }
+        @media (min-width: 1024px) {
+            .flex-layout { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); }
+        }
+        @media (max-width: 640px) {
+            .grid-2, .grid-3 { grid-template-columns: 1fr; }
+        }
+        .space-y > * + * { margin-top: 1.25rem; }
+
+        .btn-predict {
+            width: 100%;
+            margin-top: 1.5rem;
+            padding: 1rem 1.5rem;
+            border-radius: 1rem;
+            font-weight: bold;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            background: linear-gradient(to right, #06b6d4, #a855f7, #ec4899, #06b6d4);
+            background-size: 200% auto;
+            animation: flow 5s linear infinite;
+            color: white;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 10px 25px rgba(168, 85, 247, 0.25);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .btn-predict:hover { transform: scale(1.01); box-shadow: 0 10px 30px rgba(6, 182, 212, 0.4); }
+        .btn-predict:disabled { opacity: 0.6; cursor: wait; transform: none; }
+        .btn-predict:focus-visible, .glass-input:focus-visible { outline: 2px solid #22d3ee; outline-offset: 2px; }
+
+        #status { color: #f472b6; font-size: 0.8rem; margin-top: 0.75rem; min-height: 1.2em; }
+
+        .result-card {
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 1rem;
+            padding: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+        .result-name { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; }
+        .result-value { font-size: 1.5rem; font-weight: bold; }
+
+        .market-link {
+            display: block;
+            padding: 0.875rem;
+            border-radius: 0.75rem;
+            background: rgba(15, 23, 42, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            text-decoration: none;
+            transition: background 0.3s ease, border-color 0.3s ease;
+        }
+        .market-link:hover { background: rgba(15, 23, 42, 0.8); border-color: rgba(6, 182, 212, 0.4); }
+        .market-link.tilt { transition: transform 0.15s ease-out, background 0.3s ease, border-color 0.3s ease; }
+        .market-title { font-size: 0.875rem; font-weight: 600; color: #e2e8f0; }
+        .market-url {
+            font-size: 0.75rem; color: #64748b; display: block; margin-top: 0.25rem;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+
+        .ac-list {
+            position: absolute; left: 0; right: 0; margin-top: 0.25rem;
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 0.75rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            max-height: 12rem; overflow-y: auto; z-index: 50;
+        }
+        .ac-item {
+            padding: 0.625rem 1rem; font-size: 0.875rem; color: #e2e8f0; cursor: pointer;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .ac-item:hover { background: rgba(6, 182, 212, 0.2); color: #22d3ee; }
+
+        select.glass-input {
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2394a3b8%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+            background-repeat: no-repeat;
+            background-position: right 1rem center;
+            background-size: 0.65rem auto;
+        }
+        .gradient-text {
+            background: linear-gradient(to right, #22d3ee, #c084fc, #ec4899, #22d3ee);
+            background-size: 200% auto;
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: flow 6s linear infinite;
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <canvas id="cursor-canvas"></canvas>
+
+    <div class="mesh-bg">
+        <div class="mesh-blob" style="width: 24rem; height: 24rem; background: #9333ea; top: -10%; left: -10%;"></div>
+        <div class="mesh-blob" style="width: 30rem; height: 30rem; background: #0891b2; bottom: -10%; right: -10%;"></div>
+    </div>
+
+    <header class="glass-panel">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div style="width: 2.5rem; height: 2.5rem; border-radius: 0.75rem; background: linear-gradient(to top right, #06b6d4, #9333ea); display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 15px rgba(6, 182, 212, 0.3);">
+                <svg style="width: 1.5rem; height: 1.5rem; color: white;" fill="none" stroke="currentColor" viewBox="0 0 24 24" width="24" height="24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                </svg>
+            </div>
+            <div>
+                <h1 class="gradient-text" style="font-weight: bold; font-size: 1.125rem; letter-spacing: 0.05em;">NEURA-PRICE-AI</h1>
+                <p style="font-size: 0.75rem; color: #94a3b8;" class="code-font">Random Forest Regression Engine</p>
+            </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 1.5rem; font-size: 0.875rem; color: #94a3b8;">
+            <span style="display: flex; align-items: center; gap: 0.5rem;">
+                <span id="model-dot" style="width: 0.625rem; height: 0.625rem; border-radius: 50%; background: #64748b;"></span>
+                <span id="model-state" class="code-font" style="color: #94a3b8;">Loading model</span>
+            </span>
+            <span class="code-font" style="font-size: 0.75rem; background: rgba(30, 41, 59, 0.8); padding: 0.375rem 0.75rem; border-radius: 9999px; border: 1px solid #334155;">v2.7.0</span>
+        </div>
+    </header>
+
+    <main>
+        <div style="text-align: center; margin-bottom: 2.5rem;">
+            <h2 style="font-size: 2.25rem; font-weight: 800; letter-spacing: -0.025em; margin-bottom: 1rem;">
+                Smart Laptop <span class="gradient-text">Valuation Engine</span>
+            </h2>
+            <p style="color: #94a3b8; max-width: 36rem; margin: 0 auto; font-size: 1rem;">
+                Set the laptop parameters. Processor and graphics fields suggest values as you type.
+            </p>
+        </div>
+
+        <div class="flex-layout">
+            <!-- Левая колонка: форма -->
+            <div class="glass-panel">
+                <h3 class="section-title" style="color: #22d3ee;">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+                    <span>Hardware Parameters</span>
+                </h3>
+
+                <div class="space-y">
+                    <div class="grid-2">
+                        <div>
+                            <label class="label" for="company">Manufacturer</label>
+                            <select id="company" class="glass-input"></select>
+                        </div>
+                        <div>
+                            <label class="label" for="typename">Form Factor</label>
+                            <select id="typename" class="glass-input"></select>
+                        </div>
+                    </div>
+
+                    <div class="grid-2">
+                        <div>
+                            <label class="label" for="ram">RAM (GB)</label>
+                            <input type="number" id="ram" value="16" min="1" max="128" class="glass-input code-font">
+                        </div>
+                        <div>
+                            <label class="label" for="weight">Weight (kg)</label>
+                            <input type="number" id="weight" value="1.0" min="0.5" max="6" step="0.1" class="glass-input code-font">
+                        </div>
+                    </div>
+
+                    <div class="grid-3">
+                        <div>
+                            <label class="label" for="touchscreen">Touch Screen</label>
+                            <select id="touchscreen" class="glass-input">
+                                <option value="0" selected>No</option>
+                                <option value="1">Yes</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="label" for="ips">IPS Matrix</label>
+                            <select id="ips" class="glass-input">
+                                <option value="0">No</option>
+                                <option value="1" selected>Yes</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="label" for="ppi">PPI Density</label>
+                            <input type="number" id="ppi" value="141" min="80" max="400" step="1" class="glass-input code-font">
+                        </div>
+                    </div>
+
+                    <div class="grid-2">
+                        <div style="position: relative;">
+                            <label class="label" for="cpubrand">Processor (CPU)</label>
+                            <input type="text" id="cpubrand" value="Intel Core i5" autocomplete="off" class="glass-input">
+                            <div id="cpubrand-list" class="ac-list hidden"></div>
+                        </div>
+                        <div style="position: relative;">
+                            <label class="label" for="gpubrand">Graphics (GPU)</label>
+                            <input type="text" id="gpubrand" value="Intel (Integrated)" autocomplete="off" class="glass-input">
+                            <div id="gpubrand-list" class="ac-list hidden"></div>
+                        </div>
+                    </div>
+
+                    <div class="grid-3">
+                        <div>
+                            <label class="label" for="hdd">HDD (GB)</label>
+                            <input type="number" id="hdd" value="0" min="0" max="4000" step="100" class="glass-input code-font">
+                        </div>
+                        <div>
+                            <label class="label" for="ssd">SSD (GB)</label>
+                            <input type="number" id="ssd" value="512" min="0" max="4000" step="128" class="glass-input code-font">
+                        </div>
+                        <div>
+                            <label class="label" for="os">Operating System</label>
+                            <select id="os" class="glass-input"></select>
+                        </div>
+                    </div>
+
+                    <button type="button" id="predict-btn" class="btn-predict">Predict Market Valuation</button>
+                    <p id="status" role="status"></p>
+                </div>
+            </div>
+
+            <!-- Правая колонка: результат и ссылки -->
+            <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                <div class="glass-panel" style="position: relative; overflow: hidden;">
+                    <h3 class="section-title" style="color: #f472b6;">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                        <span>Estimation Matrix</span>
+                    </h3>
+
+                    <div id="results-container">
+                        <div class="result-card">
+                            <span class="result-name">Russian Ruble</span>
+                            <span id="res-rub" class="result-value code-font" style="color: #22d3ee;">—</span>
+                        </div>
+                        <div class="result-card">
+                            <span class="result-name">US Dollar</span>
+                            <span id="res-usd" class="result-value code-font" style="color: #34d399;">—</span>
+                        </div>
+                        <div class="result-card" style="margin-bottom: 0;">
+                            <span class="result-name">Tajikistani Somoni</span>
+                            <span id="res-tjs" class="result-value code-font" style="color: #c084fc;">—</span>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.1); font-size: 0.75rem; color: #94a3b8; display: flex; align-items: center; justify-content: space-between;">
+                        <span>Model quality</span>
+                        <span class="code-font" style="color: #22d3ee; font-weight: 600;">R² 0.88 (test set)</span>
+                    </div>
+                </div>
+
+                <div class="glass-panel" style="flex-grow: 1;">
+                    <h3 class="section-title" style="font-size: 1.125rem; margin-bottom: 1rem; color: #22d3ee;">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+                        <span>Market Search</span>
+                    </h3>
+
+                    <div id="search-results-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                        <a id="link-1" href="https://market.yandex.ru/" class="market-link">
+                            <h4 id="link-1-title" class="market-title">Яндекс Маркет</h4>
+                            <span id="link-1-url" class="market-url code-font">https://market.yandex.ru/</span>
+                        </a>
+                        <a id="link-2" href="https://market.yandex.ru/" class="market-link">
+                            <h4 id="link-2-title" class="market-title">Яндекс Маркет</h4>
+                            <span id="link-2-url" class="market-url code-font">https://market.yandex.ru/</span>
+                        </a>
+                        <a id="link-3" href="https://www.ebay.com/" class="market-link">
+                            <h4 id="link-3-title" class="market-title">eBay</h4>
+                            <span id="link-3-url" class="market-url code-font">https://www.ebay.com/</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="glass-panel">
+        <p>NEURA-PRICE AI Engine // Laptop price estimation with machine learning.</p>
+    </footer>
+
+    <script>
+        const $ = id => document.getElementById(id);
+        const api = () => window.pywebview && window.pywebview.api;
+
+        const FIELDS = ['company', 'typename', 'ram', 'weight', 'touchscreen', 'ips', 'ppi',
+                        'cpubrand', 'gpubrand', 'hdd', 'ssd', 'os'];
+        const cpuOptions = [];
+        const gpuOptions = [];
+
+        /* ---------- автодополнение ---------- */
+        function setupAutocomplete(inputId, listId, options) {
+            const input = $(inputId), list = $(listId);
+            const hide = () => list.classList.add('hidden');
+
+            input.addEventListener('input', () => {
+                const val = input.value.trim().toLowerCase();
+                list.replaceChildren();
+                const found = val ? options.filter(o => o.toLowerCase().includes(val)) : [];
+                if (!found.length) return hide();
+                list.classList.remove('hidden');
+                for (const item of found) {
+                    const div = document.createElement('div');
+                    div.className = 'ac-item';
+                    div.textContent = item;
+                    div.addEventListener('click', () => { input.value = item; hide(); predict(); });
+                    list.appendChild(div);
+                }
+            });
+            input.addEventListener('focus', () => input.dispatchEvent(new Event('input')));
+            document.addEventListener('click', e => {
+                if (!input.contains(e.target) && !list.contains(e.target)) hide();
+            });
+        }
+        setupAutocomplete('cpubrand', 'cpubrand-list', cpuOptions);
+        setupAutocomplete('gpubrand', 'gpubrand-list', gpuOptions);
+
+        /* ---------- расчёт ---------- */
+        const fmt = (n, locale) =>
+            n.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const setStatus = msg => { $('status').textContent = msg; };
+
+        function updateLinks(s) {
+            const yandex = q => `https://market.yandex.ru/search?text=${encodeURIComponent(q)}`;
+            const ebay = q => `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}`;
+            const rows = [
+                ['link-1', yandex(`${s.company} ${s.cpubrand} ${s.ram}GB RAM`),
+                    `${s.company} ${s.cpubrand} ${s.ram}GB — Яндекс Маркет`],
+                ['link-2', yandex(`${s.company} ${s.gpubrand} ${s.ssd}GB SSD`),
+                    `${s.company} ${s.gpubrand} ${s.ssd}GB SSD — Яндекс Маркет`],
+                ['link-3', ebay(`${s.company} ${s.cpubrand} ${s.ram}GB RAM ${s.ssd}GB SSD laptop`),
+                    `${s.company} ${s.ram}GB RAM ${s.ssd}GB SSD — eBay`],
+            ];
+            for (const [id, url, title] of rows) {
+                $(id).href = url;
+                $(id + '-title').textContent = title;
+                $(id + '-url').textContent = url;
+            }
+        }
+
+        // плавное изменение числа от старого значения к новому
+        function countUp(el, to, format, ms = 600) {
+            if (reduceMotion) { el.textContent = format(to); el.dataset.v = to; return; }
+            const from = parseFloat(el.dataset.v) || 0;
+            const t0 = performance.now();
+            (function step(t) {
+                const k = Math.min((t - t0) / ms, 1);
+                const v = from + (to - from) * (1 - Math.pow(1 - k, 3));
+                el.textContent = format(v);
+                el.dataset.v = v;
+                if (k < 1) requestAnimationFrame(step);
+            })(t0);
+        }
+
+        async function predict() {
+            if (!api()) return setStatus('Open this page through app.py');
+
+            const specs = Object.fromEntries(FIELDS.map(f => [f, $(f).value]));
+            if (!cpuOptions.includes(specs.cpubrand)) return setStatus('Pick a processor from the list');
+            if (!gpuOptions.includes(specs.gpubrand)) return setStatus('Pick a graphics card from the list');
+
+            const btn = $('predict-btn');
+            btn.disabled = true;
+            $('results-container').classList.add('loading');
+            try {
+                const res = await api().compute_price(specs);
+                if (!res.success) return setStatus(res.error || 'Calculation failed');
+                setStatus('');
+                countUp($('res-rub'), res.rub, v => fmt(v, 'ru-RU') + ' ₽');
+                countUp($('res-usd'), res.usd, v => '$' + fmt(v, 'en-US'));
+                countUp($('res-tjs'), res.tjs, v => fmt(v, 'en-US') + ' TJS');
+                updateLinks(specs);
+            } catch (err) {
+                console.error(err);
+                setStatus('Connection to Python failed');
+            } finally {
+                btn.disabled = false;
+                $('results-container').classList.remove('loading');
+            }
+        }
+
+        $('predict-btn').addEventListener('click', predict);
+
+        // ссылки открываем в системном браузере через Python
+        $('search-results-list').addEventListener('click', e => {
+            const a = e.target.closest('a');
+            if (!a) return;
+            e.preventDefault();
+            if (api()) api().open_url(a.href);
+        });
+
+        /* ---------- инициализация: ждём готовности pywebview ---------- */
+        function fillSelect(id, values, preferred) {
+            const sel = $(id);
+            sel.replaceChildren(...values.map(v => new Option(v, v)));
+            if (values.includes(preferred)) sel.value = preferred;
+        }
+
+        async function init() {
+            try {
+                const o = await api().get_options();
+                fillSelect('company', o.Company, 'Dell');
+                fillSelect('typename', o.TypeName, 'Notebook');
+                fillSelect('os', o.Os, 'Windows');
+                cpuOptions.push(...o.Cpu_brand);
+                gpuOptions.push(...o.Gpu_brand);
+                $('model-dot').style.background = '#34d399';
+                $('model-state').style.color = '#34d399';
+                $('model-state').textContent = 'Model active';
+                predict();
+            } catch (err) {
+                console.error(err);
+                $('model-state').textContent = 'Model error';
+                setStatus('Could not load model options');
+            }
+        }
+        window.addEventListener('pywebviewready', init);
+
+        /* ---------- частицы под курсором (останавливаются, когда нечего рисовать) ---------- */
+        const canvas = $('cursor-canvas'), ctx = canvas.getContext('2d');
+        const MAX_PARTICLES = 80;
+        const particles = [];
+        let hue = 0, running = false;
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
+        resize();
+        addEventListener('resize', resize);
+
+        addEventListener('mousemove', e => {
+            if (reduceMotion) return;
+            for (let i = 0; i < 2 && particles.length < MAX_PARTICLES; i++) {
+                particles.push({
+                    x: e.clientX + Math.random() * 20 - 10,
+                    y: e.clientY + Math.random() * 20 - 10,
+                    size: Math.random() * 4 + 1,
+                    vx: Math.random() * 2 - 1,
+                    vy: Math.random() * 2 - 1,
+                    hue: (hue + Math.random() * 60) % 360,
+                    alpha: 1,
+                });
+            }
+            if (!running) { running = true; requestAnimationFrame(tick); }
+        });
+
+        function tick() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            hue = (hue + 1) % 360;
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx; p.y += p.vy; p.alpha -= 0.03;
+                if (p.alpha <= 0) { particles.splice(i, 1); continue; }
+                ctx.globalAlpha = p.alpha;
+                ctx.fillStyle = `hsl(${p.hue}, 100%, 65%)`;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+            if (particles.length) requestAnimationFrame(tick); else running = false;
+        }
+
+        /* ---------- подсветка панелей вслед за курсором ---------- */
+        if (!reduceMotion) {
+            document.querySelectorAll('.glass-panel').forEach(panel => {
+                panel.addEventListener('mousemove', e => {
+                    const r = panel.getBoundingClientRect();
+                    panel.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+                    panel.style.setProperty('--my', (e.clientY - r.top) + 'px');
+                });
+                panel.addEventListener('mouseleave', () => {
+                    panel.style.removeProperty('--mx');
+                    panel.style.removeProperty('--my');
+                });
+            });
+
+            /* ---------- лёгкий наклон карточек результата и ссылок ---------- */
+            document.querySelectorAll('.result-card, .market-link').forEach(card => {
+                card.classList.add('tilt');
+                card.addEventListener('mousemove', e => {
+                    const r = card.getBoundingClientRect();
+                    const x = (e.clientX - r.left) / r.width - 0.5;
+                    const y = (e.clientY - r.top) / r.height - 0.5;
+                    card.style.transform =
+                        `perspective(600px) rotateX(${(-y * 6).toFixed(2)}deg) rotateY(${(x * 6).toFixed(2)}deg)`;
+                });
+                card.addEventListener('mouseleave', () => { card.style.transform = ''; });
+            });
+        }
+    </script>
+</body>
+</html>
